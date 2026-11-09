@@ -277,6 +277,17 @@ function connectionScope(data: DmQueueJob) {
   return data.accountConnectionId ? { instagramAccountId: data.accountConnectionId } : {};
 }
 
+function normalizeUsername(name: string | null | undefined): string {
+  return (name ?? "").trim().replace(/^@/, "").toLowerCase();
+}
+
+function isOwnUsername(
+  commenterName: string | null | undefined,
+  accountUsername: string | null | undefined
+): boolean {
+  const a = normalizeUsername(commenterName);
+  return a !== "" && a === normalizeUsername(accountUsername);
+}
 async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
   const {
     instagramAccountId,
@@ -321,7 +332,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     orderBy: { createdAt: "asc" },
   });
 
-  for (const automation of automations) {
+  for (const automation of automations) {   if (isOwnUsername(commenterName, automation.instagramAccount.username)) continue;
     // "Any word" campaigns fire on every comment; otherwise require a keyword hit.
     const matchResult = automation.matchAnyWord
       ? { matched: true, matchedKeyword: null }
