@@ -29,14 +29,27 @@ export function verifyZernioSignature({ rawBody, signature, secret }: {
   return timingSafeEqual(Buffer.from(signature, 'hex'), expected);
 }
 
+// Usernames (without @, case-insensitive) whose comments must never trigger campaigns.
+// The connected account's own username is always included. Extra names can be set via
+// IGNORED_COMMENTER_USERNAMES (comma-separated).
+function ignoredUsernames(accountUsername?: string | null): Set<string> {
+  const names = (process.env.IGNORED_COMMENTER_USERNAMES ?? '').split(',');
+  if (accountUsername) names.push(accountUsername);
+  return new Set(names.map(n => n.trim().replace(/^@/, '').toLowerCase()).filter(Boolean));
+}
+
 export function normalizeZernioEvent({ payload, account }: {
-  payload: unknown; account: { zernioAccountId: string | null; instagramId: string };
+  payload: unknown; account: { zernioAccountId: string | null; instagramId: string; username?: string | null };
 }): InstagramPayload | null {
   const parsed = envelopeSchema.safeParse(payload);
   if (!parsed.success || parsed.data.account.id !== account.zernioAccountId) return null;
   const { event, comment, message, metadata, conversation, statusAt } = parsed.data;
   const entry: InstagramPayload['entry'][number] = { id: account.instagramId, time: Date.now() };
   if (event === 'comment.received' && comment) {
+    // Zernio can report a different id for the account's own comments than the one stored
+    // for the account, so the id check in parseCommentEvents misses them. Match by username too.
+    const author = comment.author.username?.trim().replace(/^@/, '').toLowerCase();
+    if (author && ignoredUsernames(account.username).has(author)) return null;
     entry.changes = [{ field: 'comments', value: { id: comment.id, text: comment.text, from: comment.author, media: { id: comment.platformPostId } } }];
   } else if (event === 'message.received' && message?.direction === 'incoming') {
     const sender = { id: message.sender.id };
